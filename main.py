@@ -1,3 +1,4 @@
+import os
 import skimage
 import sys
 import torch
@@ -10,7 +11,7 @@ postprocessing = torchvision.transforms.Normalize(mean=[-0.485/0.229, -0.456/0.2
 transform = torchvision.transforms.Compose([torchvision.transforms.ToPILImage(), torchvision.transforms.ToTensor(), preprocessing])
 def loadImage(filename):
     try:
-        image = skimage.io.imread(filename)
+        image = skimage.io.imread(filename)[:,:,:3]
         return transform(image).unsqueeze(0)
     except Exception as e:
         print >> sys.stderr, "Error loading file " + filename + " ["+ str(e) +"]"
@@ -83,7 +84,7 @@ class StyleTransfer(torch.nn.Module):
         return loss
 
     def optimise(self):
-        canvas = torch.randn((1, 3, 256, 256)).cuda()
+        canvas = torch.randn((1, 3, 512, 512)).cuda()
         canvas.requires_grad = True
         optimizer = torch.optim.Adam([canvas], 1)
         for i in range(1000):
@@ -96,12 +97,24 @@ class StyleTransfer(torch.nn.Module):
 
 model = StyleTransfer().cuda()
 print(model)
-    
-# Load input
-style = loadImage(sys.argv[1]).cuda()
-print("Style", sys.argv[1], style.shape)
 
-# Run input
-model.setStyle(style)
-result = model.optimise()
-torchvision.utils.save_image(postprocessing(result), "result.png")
+html = "<html><body><table>"
+for filename in sys.argv[1:]:
+    print(filename)
+
+    # Load input
+    style = loadImage(filename).cuda()
+    if style is not None:
+        print("Style", filename, style.shape)
+
+        # Run input
+        model.setStyle(style)
+        result = model.optimise()
+                
+        path = "dst/" + os.path.basename(filename)
+        torchvision.utils.save_image(postprocessing(result), path)
+
+        html += "<tr><td><img src='" + filename + "'></td><td><img src='" + path + "'></td><tr/>"
+        with open("results.html", "w") as f:
+            f.write(html + "</table></body></html>")
+
