@@ -83,9 +83,10 @@ class StyleTransfer(torch.nn.Module):
         loss += torch.nn.functional.mse_loss(self.gram(self.features5_1), self.target5_1)
         return loss
 
-    def optimise(self):
-        canvas = torch.randn((1, 3, 512, 512)).cuda()
-        canvas.requires_grad = True
+    def optimise(self, canvas = None):
+        if canvas is None:
+            canvas = torch.randn((1, 3, 128, 128)).cuda()
+            canvas.requires_grad = True
         optimizer = torch.optim.Adam([canvas], 1)
         for i in range(1000):
             optimizer.zero_grad()
@@ -93,7 +94,8 @@ class StyleTransfer(torch.nn.Module):
             print(i, loss.item())
             loss.backward()
             optimizer.step()
-        return canvas[0]
+        canvas.clamp(0, 1)
+        return canvas.data
 
 model = StyleTransfer().cuda()
 print(model)
@@ -108,11 +110,17 @@ for filename in sys.argv[1:]:
         print("Style", filename, style.shape)
 
         # Run input
-        model.setStyle(style)
+        model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
         result = model.optimise()
-                
+        result = torch.nn.functional.interpolate(result, scale_factor = 2)
+        model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
+        result = model.optimise(result)
+        result = torch.nn.functional.interpolate(result, scale_factor = 2)
+        model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
+        result = model.optimise(result)
+
         path = "dst/" + os.path.basename(filename)
-        torchvision.utils.save_image(postprocessing(result), path)
+        torchvision.utils.save_image(postprocessing(result[0]), path)
 
         html += "<tr><td><img src='" + filename + "'></td><td><img src='" + path + "'></td><tr/>"
         with open("results.html", "w") as f:
