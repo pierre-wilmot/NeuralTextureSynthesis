@@ -38,6 +38,7 @@ class StyleTransfer(torch.nn.Module):
         self.conv4_3 = vgg[23]
         self.conv4_4 = vgg[25]
         self.conv5_1 = vgg[28]
+        self.learning_rate = 1
 
     def forward(self, x):
         x = torch.nn.functional.relu(self.conv1_1(x))
@@ -123,7 +124,24 @@ class StyleTransfer(torch.nn.Module):
             loss += torch.nn.functional.mse_loss(self.gram(self.features3_1), self.target3_1)
             loss += torch.nn.functional.mse_loss(self.gram(self.features4_1), self.target4_1)
             loss += torch.nn.functional.mse_loss(self.gram(self.features5_1), self.target5_1)
+
+            histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features1_1[0], self.hist_1, self.min_1, self.max_1)
+            assert(histogramCorrectedTarget.shape == self.features1_1.shape)
+            loss += torch.nn.functional.mse_loss(self.features1_1, histogramCorrectedTarget) * 2000000000
+            histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features2_1[0], self.hist_2, self.min_2, self.max_2)
+            assert(histogramCorrectedTarget.shape == self.features2_1.shape)
+            loss += torch.nn.functional.mse_loss(self.features2_1, histogramCorrectedTarget) * 500000000
+            histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features3_1[0], self.hist_3, self.min_3, self.max_3)
+            assert(histogramCorrectedTarget.shape == self.features3_1.shape)
+            loss += torch.nn.functional.mse_loss(self.features3_1, histogramCorrectedTarget) * 100000000
+            histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features4_1[0], self.hist_4, self.min_4, self.max_4)
+            assert(histogramCorrectedTarget.shape == self.features4_1.shape)
+            loss += torch.nn.functional.mse_loss(self.features4_1, histogramCorrectedTarget) * 35000000
+            histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features5_1[0], self.hist_5, self.min_5, self.max_5)
+            assert(histogramCorrectedTarget.shape == self.features5_1.shape)
+            loss += torch.nn.functional.mse_loss(self.features5_1, histogramCorrectedTarget) * 35000000
             return loss
+
         if self.mode == 1:
             if self.layer == 0:
                 return torch.nn.functional.mse_loss(self.gram(self.features1_1), self.target1_1)
@@ -169,7 +187,7 @@ class StyleTransfer(torch.nn.Module):
         canvas.requires_grad = True
         canvas.retain_grad()
         canvas_state = torch.zeros(canvas.shape).cuda()
-        optimizer = torch.optim.Adam([canvas], 1)
+        optimizer = torch.optim.Adam([canvas], self.learning_rate)
 
         layers = [0] if self.mode == 0 else [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         gradient_norm = torch.Tensor(len(layers), iterations)
@@ -208,22 +226,24 @@ for filename in sys.argv[1:]:
     if style is not None:
         print("Style", filename, style.shape)
         html += "<tr><td><img src='" + filename + "'></td>"
-        for mode in [0, 1]:
+        for mode in [0]:
             model.mode = mode
-            # Run input
-            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
-            result, _ = model.optimise()
-            result = torch.nn.functional.interpolate(result, scale_factor = 2)
-            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
-            result, _ = model.optimise(result)
-            result = torch.nn.functional.interpolate(result, scale_factor = 2)
-            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
-            result, gradient_norm = model.optimise(result)
+            for lr in [0.05]:
+                model.learning_rate = lr
+                # Run input
+                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
+                result, _ = model.optimise()
+                result = torch.nn.functional.interpolate(result, scale_factor = 2)
+                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
+                result, _ = model.optimise(result)
+                result = torch.nn.functional.interpolate(result, scale_factor = 2)
+                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
+                result, gradient_norm = model.optimise(result)
             
-            path = "dst/mode_" + str(mode) + os.path.basename(filename)
-            torch.save(gradient_norm, path + ".pth")
-            torchvision.utils.save_image(postprocessing(result[0]), path)
-            html += "<td><img src='" + path + "'></td>"
-            with open("results.html", "w") as f:
-                f.write(html + "</table></body></html>")
+                path = "dst/mode_" + str(mode) + "_" + str(lr) + "_" + os.path.basename(filename)
+                torch.save(gradient_norm, path + ".pth")
+                torchvision.utils.save_image(postprocessing(result[0]), path)
+                html += "<td><img src='" + path + "'></td>"
+                with open("results.html", "w") as f:
+                    f.write(html + "</table></body></html>")
 
