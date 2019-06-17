@@ -39,6 +39,7 @@ class StyleTransfer(torch.nn.Module):
         self.conv4_4 = vgg[25]
         self.conv5_1 = vgg[28]
         self.learning_rate = 1
+        self.histogram = True
 
     def forward(self, x):
         x = torch.nn.functional.relu(self.conv1_1(x))
@@ -118,13 +119,13 @@ class StyleTransfer(torch.nn.Module):
     def computeLoss(self, x):
         self.forward(x)
 
-        if self.mode == 0:
-            loss = torch.nn.functional.mse_loss(self.gram(self.features1_1), self.target1_1)
-            loss += torch.nn.functional.mse_loss(self.gram(self.features2_1), self.target2_1)
-            loss += torch.nn.functional.mse_loss(self.gram(self.features3_1), self.target3_1)
-            loss += torch.nn.functional.mse_loss(self.gram(self.features4_1), self.target4_1)
-            loss += torch.nn.functional.mse_loss(self.gram(self.features5_1), self.target5_1)
+        loss = torch.nn.functional.mse_loss(self.gram(self.features1_1), self.target1_1)
+        loss += torch.nn.functional.mse_loss(self.gram(self.features2_1), self.target2_1)
+        loss += torch.nn.functional.mse_loss(self.gram(self.features3_1), self.target3_1)
+        loss += torch.nn.functional.mse_loss(self.gram(self.features4_1), self.target4_1)
+        loss += torch.nn.functional.mse_loss(self.gram(self.features5_1), self.target5_1)
 
+        if self.histogram:
             histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features1_1[0], self.hist_1, self.min_1, self.max_1)
             assert(histogramCorrectedTarget.shape == self.features1_1.shape)
             loss += torch.nn.functional.mse_loss(self.features1_1, histogramCorrectedTarget) * 2000000000
@@ -140,44 +141,8 @@ class StyleTransfer(torch.nn.Module):
             histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features5_1[0], self.hist_5, self.min_5, self.max_5)
             assert(histogramCorrectedTarget.shape == self.features5_1.shape)
             loss += torch.nn.functional.mse_loss(self.features5_1, histogramCorrectedTarget) * 35000000
-            return loss
 
-        if self.mode == 1:
-            if self.layer == 0:
-                return torch.nn.functional.mse_loss(self.gram(self.features1_1), self.target1_1)
-            if self.layer == 1:
-                return torch.nn.functional.mse_loss(self.gram(self.features2_1), self.target2_1)
-            if self.layer == 2:
-                return torch.nn.functional.mse_loss(self.gram(self.features3_1), self.target3_1)
-            if self.layer == 3:
-                return torch.nn.functional.mse_loss(self.gram(self.features4_1), self.target4_1)
-            if self.layer == 4:
-                return torch.nn.functional.mse_loss(self.gram(self.features5_1), self.target5_1) * 10
-
-            if self.layer == 5:
-                histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features1_1[0], self.hist_1, self.min_1, self.max_1)
-                assert(histogramCorrectedTarget.shape == self.features1_1.shape)
-                return torch.nn.functional.mse_loss(self.features1_1, histogramCorrectedTarget) * 2000000000
-            
-            if self.layer == 6:
-                histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features2_1[0], self.hist_2, self.min_2, self.max_2)
-                assert(histogramCorrectedTarget.shape == self.features2_1.shape)
-                return torch.nn.functional.mse_loss(self.features2_1, histogramCorrectedTarget) * 500000000
-
-            if self.layer == 7:
-                histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features3_1[0], self.hist_3, self.min_3, self.max_3)
-                assert(histogramCorrectedTarget.shape == self.features3_1.shape)
-                return torch.nn.functional.mse_loss(self.features3_1, histogramCorrectedTarget) * 100000000
-
-            if self.layer == 8:
-                histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features4_1[0], self.hist_4, self.min_4, self.max_4)
-                assert(histogramCorrectedTarget.shape == self.features4_1.shape)
-                return torch.nn.functional.mse_loss(self.features4_1, histogramCorrectedTarget) * 35000000
-
-            if self.layer == 9:
-                histogramCorrectedTarget = self.computeHistogramMatchedActivation(self.features5_1[0], self.hist_5, self.min_5, self.max_5)
-                assert(histogramCorrectedTarget.shape == self.features5_1.shape)
-                return torch.nn.functional.mse_loss(self.features5_1, histogramCorrectedTarget) * 35000000
+        return loss
 
 
     def optimise(self, canvas = None):
@@ -185,34 +150,15 @@ class StyleTransfer(torch.nn.Module):
         if canvas is None:
             canvas = torch.randn((1, 3, 128, 128)).cuda()
         canvas.requires_grad = True
-        canvas.retain_grad()
-        canvas_state = torch.zeros(canvas.shape).cuda()
         optimizer = torch.optim.Adam([canvas], self.learning_rate)
-
-        layers = [0] if self.mode == 0 else [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        gradient_norm = torch.Tensor(len(layers), iterations)
-
         for i in range(iterations):
             optimizer.zero_grad()
-            canvas_state.fill_(0)
-            for l in layers:
-                self.layer = l
-                loss = self.computeLoss(canvas)
-                print(self.mode, i, self.layer, loss.item())
-                loss.backward()
-
-                if self.mode == 1:
-
-                    gradient_norm[l][i] = torch.norm(canvas.grad)
-                    canvas_state += canvas.grad
-                    canvas.grad.fill_(0)
-
-            if self.mode ==1:
-                canvas.grad += canvas_state
+            loss = self.computeLoss(canvas)
+            print(self.histogram, canvas.shape[2], i, loss.item())
+            loss.backward()
             optimizer.step()
-
         canvas.clamp(0, 1)
-        return canvas.data, gradient_norm
+        return canvas.data
 
 model = StyleTransfer().cuda()
 print(model)
@@ -226,22 +172,21 @@ for filename in sys.argv[1:]:
     if style is not None:
         print("Style", filename, style.shape)
         html += "<tr><td><img src='" + filename + "'></td>"
-        for mode in [0]:
-            model.mode = mode
+        for histogram in [False, True]:
+            model.histogram = histogram
             for lr in [0.05]:
                 model.learning_rate = lr
                 # Run input
                 model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
-                result, _ = model.optimise()
+                result = model.optimise()
                 result = torch.nn.functional.interpolate(result, scale_factor = 2)
                 model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
-                result, _ = model.optimise(result)
+                result = model.optimise(result)
                 result = torch.nn.functional.interpolate(result, scale_factor = 2)
                 model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
-                result, gradient_norm = model.optimise(result)
+                result = model.optimise(result)
             
-                path = "dst/mode_" + str(mode) + "_" + str(lr) + "_" + os.path.basename(filename)
-                torch.save(gradient_norm, path + ".pth")
+                path = "dst/mode_" + str(histogram) + "_" + str(lr) + "_" + os.path.basename(filename)
                 torchvision.utils.save_image(postprocessing(result[0]), path)
                 html += "<td><img src='" + path + "'></td>"
                 with open("results.html", "w") as f:
