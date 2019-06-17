@@ -6,6 +6,10 @@ import torchvision
 from torch.utils.cpp_extension import load
 
 print("Style Transfer")
+if len(sys.argv) <= 1:
+    print("Usage: " + sys.argv[0] + " STYLE_IMAGE_FILES ...")
+    sys.exit(0)
+
 
 preprocessing = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 postprocessing = torchvision.transforms.Normalize(mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225], std=[1/0.229, 1/0.224, 1/0.225])
@@ -38,7 +42,7 @@ class StyleTransfer(torch.nn.Module):
         self.conv4_3 = vgg[23]
         self.conv4_4 = vgg[25]
         self.conv5_1 = vgg[28]
-        self.learning_rate = 1
+        self.learning_rate = 0.05
         self.histogram = True
 
     def forward(self, x):
@@ -98,9 +102,6 @@ class StyleTransfer(torch.nn.Module):
         self.max_5 = torch.max(self.features5_1[0].view(self.features5_1.shape[1], -1), 1)[0].data.clone()
         self.hist_5 = cpp.computeHistogram(self.features5_1[0], 256)
 
-
-
-
     def computeHistogramMatchedActivation(self, t, h, minv, maxv):
         assert(len(t.shape) == 3)
         assert(len(minv.shape) == 1)
@@ -146,7 +147,7 @@ class StyleTransfer(torch.nn.Module):
 
 
     def optimise(self, canvas = None):
-        iterations = 1000        
+        iterations = 1000
         if canvas is None:
             canvas = torch.randn((1, 3, 128, 128)).cuda()
         canvas.requires_grad = True
@@ -163,7 +164,7 @@ class StyleTransfer(torch.nn.Module):
 model = StyleTransfer().cuda()
 print(model)
 
-html = "<html><body><table>"
+html = "<html><body><table style='margin:auto;'><tr><th>INPUT</th><th>GRAM ONLY</th><th>GRAM + HISTOGRAM</th></tr>"
 for filename in sys.argv[1:]:
     print(filename)
 
@@ -174,21 +175,18 @@ for filename in sys.argv[1:]:
         html += "<tr><td><img src='" + filename + "'></td>"
         for histogram in [False, True]:
             model.histogram = histogram
-            for lr in [0.05]:
-                model.learning_rate = lr
-                # Run input
-                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
-                result = model.optimise()
-                result = torch.nn.functional.interpolate(result, scale_factor = 2)
-                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
-                result = model.optimise(result)
-                result = torch.nn.functional.interpolate(result, scale_factor = 2)
-                model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
-                result = model.optimise(result)
+            # Run input
+            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/4))
+            result = model.optimise()
+            result = torch.nn.functional.interpolate(result, scale_factor = 2)
+            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1.0/2))
+            result = model.optimise(result)
+            result = torch.nn.functional.interpolate(result, scale_factor = 2)
+            model.setStyle(torch.nn.functional.interpolate(style, scale_factor = 1))
+            result = model.optimise(result)
             
-                path = "dst/mode_" + str(histogram) + "_" + str(lr) + "_" + os.path.basename(filename)
-                torchvision.utils.save_image(postprocessing(result[0]), path)
-                html += "<td><img src='" + path + "'></td>"
-                with open("results.html", "w") as f:
-                    f.write(html + "</table></body></html>")
-
+            path = "dst/mode_" + str(histogram) + "_" + os.path.basename(filename)
+            torchvision.utils.save_image(postprocessing(result[0]), path)
+            html += "<td><img src='" + path + "'></td>"
+            with open("results.html", "w") as f:
+                f.write(html + "</table></body></html>")
