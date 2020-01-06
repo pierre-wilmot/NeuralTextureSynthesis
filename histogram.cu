@@ -103,7 +103,7 @@ void matchHistogram(at::Tensor &featureMaps, at::Tensor &targetHistogram)
 {
   static std::map<unsigned int, at::Tensor> randomIndices;
   if (randomIndices[featureMaps.numel()].numel() != featureMaps.numel())
-    randomIndices[featureMaps.numel()] = torch::randperm(featureMaps.numel()).to(at::kLong).cuda();
+    randomIndices[featureMaps.numel()] = torch::randperm(featureMaps.numel(), torch::TensorOptions().dtype(at::kLong)).cuda();
 
   at::Tensor unsqueezed(featureMaps);
   if (unsqueezed.ndimension() == 1)
